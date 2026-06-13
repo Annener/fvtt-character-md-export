@@ -1,6 +1,6 @@
 /**
  * fvtt-character-md-export — main.js
- * Экспорт листа персонажа D&D 5e в Markdown для Mercer.
+ * Экспорт листа персонажа D&D 5e в Markdown.
  * Совместимо: FoundryVTT v12–v14 (AppV1 + Application V2)
  */
 
@@ -12,7 +12,6 @@ function abilityStr(v){ return `${v} (${mod(v)})`; }
 function stripHtml(html){
   if(!html) return "";
   return html
-    // &reference[dimlight]{тусклом свете} → тусклом свете
     .replace(/&reference\[[^\]]*\]\{([^}]+)\}/g, '$1')
     .replace(/<\/p>/gi,"\n").replace(/<br\s*\/?>/gi,"\n")
     .replace(/<\/li>/gi,"\n").replace(/<li>/gi,"- ")
@@ -53,8 +52,6 @@ const SPELL_SCHOOL_RU={
   evo:"Воплощение",ill:"Иллюзия",nec:"Некромантия",trs:"Преобразование"
 };
 
-/** Перевод ключей языков dnd5e → русский.
- *  Нестандартные/кастомные языки приходят уже строкой и сюда не попадают. */
 const LANGUAGE_RU={
   common:       "Всеобщий",
   dwarvish:     "Дварфийский",
@@ -85,7 +82,6 @@ const LANGUAGE_RU={
   troglodyte:   "Троглодитский",
 };
 
-/** Переводит один ключ языка; если нет в словаре — возвращает как есть */
 function langName(key){
   return LANGUAGE_RU[key] ?? LANGUAGE_RU[key?.toLowerCase()] ?? key;
 }
@@ -106,7 +102,6 @@ function generateMarkdown(actor){
   const bgItem=items.find(i=>i.type==="background");
   const bgName=bgItem?bgItem.name:"—";
 
-  // Языки: системные ключи переводим, кастомный текст оставляем как есть
   const langs=(s.traits?.languages?.value||[]).map(langName);
   const langCustom=s.traits?.languages?.custom||"";
   const langStr=[...langs,...(langCustom?langCustom.split(";"):[])].map(l=>l.trim()).filter(Boolean).join(", ")||"—";
@@ -160,7 +155,6 @@ function generateMarkdown(actor){
   L.push("**Остальные:**"); otherSkills.forEach(l=>L.push(`- ${l}`)); L.push("");
   if(raceFeats.length){L.push("## Особенности расы");raceFeats.forEach(f=>{L.push(`### ${f.name}`);const d=stripHtml(f.system?.description?.value);if(d)L.push(d);L.push("");});}
   if(classFeats.length){L.push("## Особенности класса");classFeats.forEach(f=>{L.push(`### ${f.name}`);const d=stripHtml(f.system?.description?.value);if(d)L.push(d);if(f.system?.uses?.max)L.push(`*Исп.: ${f.system.uses.max-(f.system.uses.spent||0)}/${f.system.uses.max}*`);L.push("");});}
-  // Прочие черты: только первое предложение описания (до 200 символов)
   if(otherFeats.length){
     L.push("## Прочие черты");
     otherFeats.forEach(f=>{
@@ -202,12 +196,14 @@ function generateMarkdown(actor){
 
 // ── Логика инъекции кнопки ────────────────────────────────────────────────────
 
+const BTN_CLASS = "md-export-btn";
+
 /** Создаёт и возвращает кнопку экспорта для данного актора */
 function createExportButton(actor) {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "mercer-export-btn";
-  btn.title = "MD Экспорт для Mercer";
+  btn.className = BTN_CLASS;
+  btn.title = "MD Экспорт";
   btn.innerHTML = `<i class="fas fa-file-export"></i>`;
   btn.style.cssText = "flex:0 0 auto;padding:0 8px;background:none;border:none;cursor:pointer;font-size:14px;color:inherit;";
   btn.addEventListener("click", ev => {
@@ -232,7 +228,6 @@ function createExportButton(actor) {
 
 /**
  * Инъекция кнопки для AppV2 (FoundryVTT v14).
- * Принимает объект application (экземпляр ApplicationV2).
  */
 function injectButtonV2(app) {
   const actor = app.actor;
@@ -240,7 +235,7 @@ function injectButtonV2(app) {
 
   const windowEl = app.element;
   if (!windowEl) return;
-  if (windowEl.querySelector(".mercer-export-btn")) return;
+  if (windowEl.querySelector("." + BTN_CLASS)) return;
 
   const header = app.window?.header;
   if (!header) {
@@ -256,7 +251,6 @@ function injectButtonV2(app) {
 
 /**
  * Инъекция кнопки для AppV1 (FoundryVTT v12–v13).
- * Принимает app и html так, как их передаёт хук renderActorSheet.
  */
 function injectButtonV1(app, html) {
   const actor = app.actor;
@@ -265,7 +259,7 @@ function injectButtonV1(app, html) {
   const el = html instanceof jQuery ? html[0] : html;
   const windowEl = el?.closest?.(".app") ?? el?.parentElement?.closest?.(".app") ?? el;
   if (!windowEl) return;
-  if (windowEl.querySelector(".mercer-export-btn")) return;
+  if (windowEl.querySelector("." + BTN_CLASS)) return;
 
   const header = windowEl.querySelector(".window-header");
   if (!header) {
@@ -303,16 +297,21 @@ Hooks.on("ready", () => {
         if (!windowEl) continue;
         let foundApp = null;
         try {
-          for (const appInst of foundry.applications.instances()) {
-            if (appInst.actor && appInst.element && windowEl.contains(appInst.element)) {
-              foundApp = appInst; break;
+          // foundry.applications.instances — Map в v13+
+          const instances = foundry.applications?.instances;
+          const iter = (instances instanceof Map) ? instances.values() : (typeof instances === "function" ? instances() : null);
+          if (iter) {
+            for (const appInst of iter) {
+              if (appInst.actor && appInst.element && windowEl.contains(appInst.element)) {
+                foundApp = appInst; break;
+              }
             }
           }
         } catch(_) {}
         if (foundApp) {
           if (foundApp.window) {
             injectButtonV2(foundApp);
-          } else if (!windowEl.querySelector(".mercer-export-btn") && foundApp.actor?.type === "character") {
+          } else if (!windowEl.querySelector("." + BTN_CLASS) && foundApp.actor?.type === "character") {
             const header = windowEl.querySelector(".window-header");
             if (header) {
               const btn = createExportButton(foundApp.actor);
