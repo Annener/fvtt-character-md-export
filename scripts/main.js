@@ -8,10 +8,23 @@
 function mod(v){ const m=Math.floor((v-10)/2); return m>=0?`+${m}`:`${m}`; }
 function abilityStr(v){ return `${v} (${mod(v)})`; }
 
-/** Вырезает &reference[key]{текст} → текст, затем чистит HTML-теги */
+/**
+ * Чистит HTML/enricher-разметку в чистый текст:
+ *   1. @UUID[...]{label} → label  (синтаксис Foundry v12+)
+ *   2. @Compendium[...]{label} → label  (устаревший энричер)
+ *   3. &reference[key]{label} → label
+ *   4. HTML-теги и HTML-юникод
+ */
 function stripHtml(html){
   if(!html) return "";
   return html
+    // @UUID[...]{label} или @Compendium[...]{label} → label
+    .replace(/@(?:UUID|Compendium)\[[^\]]*\]\{([^}]+)\}/g, '$1')
+    // @AnyEnricher[...]{label} — на случай незнакомых enricher'ов с label
+    .replace(/@\w+\[[^\]]*\]\{([^}]+)\}/g, '$1')
+    // @AnyEnricher[...] без надписи — убираем целико
+    .replace(/@\w+\[[^\]]*\]/g, '')
+    // &reference[key]{label} → label
     .replace(/&reference\[[^\]]*\]\{([^}]+)\}/g, '$1')
     .replace(/<\/p>/gi,"\n").replace(/<br\s*\/?>/gi,"\n")
     .replace(/<\/li>/gi,"\n").replace(/<li>/gi,"- ")
@@ -19,7 +32,7 @@ function stripHtml(html){
     .replace(/&gt;/g,">").replace(/&nbsp;/g," ").replace(/\n{3,}/g,"\n\n").trim();
 }
 
-/** Берёт первое предложение из текста, но не более maxLen символов */
+/** Берёт первое предложение из уже чистого текста, но не более maxLen символов */
 function firstSentence(text, maxLen = 200){
   if(!text) return "";
   const m = text.match(/^.+?[.!?](?:\s|$)/s);
@@ -177,11 +190,25 @@ function generateMarkdown(actor){
   if(spells.length){
     L.push("## Заклинания",`**Характеристика:** ${ABILITY_RU[scAbility]||scAbility} | **СЛ:** ${spellDC} | **Бонус атаки:** +${spellAtk}  `,"");
     if(slotRows.length){L.push("### Ячейки","| Уровень | Всего | Исп. |","|---|---|---|");slotRows.forEach(r=>L.push(r));L.push("");}
-    if(cantripSpells.length){L.push("### Заговоры");cantripSpells.forEach(sp=>{L.push(`#### ${sp.name}`);const d=stripHtml(sp.system?.description?.value);if(d)L.push(d);L.push("");});}
+    if(cantripSpells.length){
+      L.push("### Заговоры");
+      cantripSpells.forEach(sp=>{
+        L.push(`#### ${sp.name}`);
+        const d=firstSentence(stripHtml(sp.system?.description?.value));
+        if(d)L.push(d);
+        L.push("");
+      });
+    }
     const lvlN=["","1-го","2-го","3-го","4-го","5-го","6-го","7-го","8-го","9-го"];
     Object.keys(byLevel).sort((a,b)=>a-b).forEach(lvl=>{
       L.push(`### Заклинания ${lvlN[lvl]||lvl+"-го"} круга`);
-      byLevel[lvl].forEach(sp=>{const school=SPELL_SCHOOL_RU[sp.system?.school]||"",conc=sp.system?.duration?.concentration?" [Конц.]":"";L.push(`#### ${sp.name}`,`*${school}${conc}*  `);const d=stripHtml(sp.system?.description?.value);if(d)L.push(d);L.push("");});
+      byLevel[lvl].forEach(sp=>{
+        const school=SPELL_SCHOOL_RU[sp.system?.school]||"",conc=sp.system?.duration?.concentration?" [Конц.]":"";
+        L.push(`#### ${sp.name}`,`*${school}${conc}*  `);
+        const d=firstSentence(stripHtml(sp.system?.description?.value));
+        if(d)L.push(d);
+        L.push("");
+      });
     });
   }
   L.push("## Личность");
@@ -297,7 +324,6 @@ Hooks.on("ready", () => {
         if (!windowEl) continue;
         let foundApp = null;
         try {
-          // foundry.applications.instances — Map в v13+
           const instances = foundry.applications?.instances;
           const iter = (instances instanceof Map) ? instances.values() : (typeof instances === "function" ? instances() : null);
           if (iter) {
