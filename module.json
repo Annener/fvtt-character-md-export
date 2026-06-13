@@ -1,7 +1,7 @@
 {
   "id": "fvtt-character-md-export",
   "title": "Character MD Export",
-  "description": "Экспорт листа персонажа D&D 5e в Markdown для RAG-системы Mercer",
+  "description": "Экспорт листа персонажа D&D 5e в формат Markdown для индексации в RAG-системах",
   "version": "1.0.4",
   "compatibility": {
     "minimum": "12",
@@ -9,7 +9,7 @@
   },
   "authors": [
     {
-      "name": "Mercer",
+      "name": "Annener",
       "flags": {}
     }
   ],
