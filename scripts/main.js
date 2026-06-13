@@ -1,7 +1,7 @@
 /**
  * fvtt-character-md-export — main.js
  * Экспорт листа персонажа D&D 5e в Markdown для Mercer.
- * Совместимо: FoundryVTT v14 (Application V2)
+ * Совместимо: FoundryVTT v12–v14 (AppV1 + Application V2)
  */
 
 // ── Утилиты ──────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ const SPELL_SCHOOL_RU={
   evo:"Воплощение",ill:"Иллюзия",nec:"Некромантия",trs:"Преобразование"
 };
 
-// ── Генерация Markdown ───────────────────────────────────────────────────────────
+// ── Генерация Markdown ───────────────────────────────────────────────────────
 function generateMarkdown(actor){
   const s=actor.system, items=actor.items.contents;
   const classItems=items.filter(i=>i.type==="class");
@@ -88,7 +88,6 @@ function generateMarkdown(actor){
   const scAbility=s.attributes?.spellcasting||"int";
   const scAb=ab[scAbility]?.value??10;
   const spellDC=8+pb+Math.floor((scAb-10)/2), spellAtk=pb+Math.floor((scAb-10)/2);
-  const innateSpells=spells.filter(sp=>sp.system?.preparation?.mode==="innate");
   const cantripSpells=spells.filter(sp=>sp.system?.level===0&&sp.system?.preparation?.mode!=="innate");
   const slottedSpells=spells.filter(sp=>sp.system?.level>0&&sp.system?.preparation?.mode!=="innate");
   const byLevel={}; slottedSpells.forEach(sp=>{const l=sp.system.level;if(!byLevel[l])byLevel[l]=[];byLevel[l].push(sp);});
@@ -110,17 +109,17 @@ function generateMarkdown(actor){
   if(otherFeats.length){L.push("## Прочие черты");otherFeats.forEach(f=>{L.push(`### ${f.name}`);const d=stripHtml(f.system?.description?.value);if(d)L.push(d);L.push("");});}
   L.push("## Инвентарь","");
   if(weapons.length){
-    L.push("### Оружие","| Название | Снаряжено | Урон | Тип | Свойства |","|---|---|---|---|---|" );
-    weapons.forEach(w=>{const eq=w.system?.equipped?"Да":"Нет",bd=w.system?.damage?.base,dmgStr=bd?`${bd.number??""}к${bd.denomination??""}${bd.bonus?"+"+bd.bonus:""}`:"—",dmgTypes=Object.keys(bd?.types||{}).join(",")||"—",props=Object.keys(w.system?.properties||{}).filter(p=>w.system.properties[p]).join(",")||"—";L.push(`| ${w.name} | ${eq} | ${dmgStr} | ${dmgTypes} | ${props} |`);});
+    L.push("### Оружие","| Название | Снаряжено | Урон | Тип | Свойства |","|---|---|---|---|---|");
+    weapons.forEach(w=>{const eq=w.system?.equipped?"Да":"Нет",bd=w.system?.damage?.base,dmgStr=bd?`${bd.number??""}к${bd.denomination??""}${bd.bonus?"+"+bd.bonus:""}`:"-",dmgTypes=Object.keys(bd?.types||{}).join(",")||"—",props=Object.keys(w.system?.properties||{}).filter(p=>w.system.properties[p]).join(",")||"—";L.push(`| ${w.name} | ${eq} | ${dmgStr} | ${dmgTypes} | ${props} |`);});
     L.push("");
   }
-  if(armors.length){L.push("### Броня","| Предмет | Снаряжено | КБ |","|----|----|----|" );armors.forEach(a=>L.push(`| ${a.name} | ${a.system?.equipped?"Да":"Нет"} | ${a.system?.armor?.value??"—"} |`));L.push("");}
+  if(armors.length){L.push("### Броня","| Предмет | Снаряжено | КБ |","|----|----|----|");armors.forEach(a=>L.push(`| ${a.name} | ${a.system?.equipped?"Да":"Нет"} | ${a.system?.armor?.value??"—"} |`));L.push("");}
   if(consumables.length){L.push("### Расходуемые");consumables.forEach(c=>{const qty=c.system?.quantity??1,uses=c.system?.uses?.max?` (${c.system.uses.max-(c.system.uses.spent||0)}/${c.system.uses.max})`:"";L.push(`- **${c.name}** ×${qty}${uses}`);});L.push("");}
   if(loot.length||otherItems.length){L.push("### Прочее");[...loot,...otherItems].forEach(i=>L.push(`- ${i.name}`));L.push("");}
   L.push(`**Валюта:** ${curStr}  `,"");
   if(spells.length){
     L.push("## Заклинания",`**Характеристика:** ${ABILITY_RU[scAbility]||scAbility} | **СЛ:** ${spellDC} | **Бонус атаки:** +${spellAtk}  `,"");
-    if(slotRows.length){L.push("### Ячейки","| Уровень | Всего | Исп. |","|---|---|---|" );slotRows.forEach(r=>L.push(r));L.push("");}
+    if(slotRows.length){L.push("### Ячейки","| Уровень | Всего | Исп. |","|---|---|---|");slotRows.forEach(r=>L.push(r));L.push("");}
     if(cantripSpells.length){L.push("### Заговоры");cantripSpells.forEach(sp=>{L.push(`#### ${sp.name}`);const d=stripHtml(sp.system?.description?.value);if(d)L.push(d);L.push("");});}
     const lvlN=["","1-го","2-го","3-го","4-го","5-го","6-го","7-го","8-го","9-го"];
     Object.keys(byLevel).sort((a,b)=>a-b).forEach(lvl=>{
@@ -138,25 +137,16 @@ function generateMarkdown(actor){
   return L.join("\n");
 }
 
-// ── Добавление кнопки: работает для AppV1 и AppV2 (Foundry v12–v14) ──────────────────
+// ── Логика инъекции кнопки ────────────────────────────────────────────────────
 
-function injectButton(actor, windowEl) {
-  if (!actor || actor.type !== "character") return;
-  if (windowEl.querySelector(".mercer-export-btn")) return; // уже есть
-
-  const header = windowEl.querySelector(".window-header");
-  if (!header) {
-    console.warn("fvtt-character-md-export | .window-header не найден", windowEl);
-    return;
-  }
-
+/** Создаёт и возвращает кнопку экспорта для данного актора */
+function createExportButton(actor) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "mercer-export-btn";
   btn.title = "MD Экспорт для Mercer";
   btn.innerHTML = `<i class="fas fa-file-export"></i>`;
   btn.style.cssText = "flex:0 0 auto;padding:0 8px;background:none;border:none;cursor:pointer;font-size:14px;color:inherit;";
-
   btn.addEventListener("click", ev => {
     ev.preventDefault(); ev.stopPropagation();
     try {
@@ -174,49 +164,130 @@ function injectButton(actor, windowEl) {
       ui.notifications.error("❌ Ошибка экспорта, см. F12");
     }
   });
-
-  // Вставляем перед кнопкой закрытия
-  const closeBtn = header.querySelector("[data-action='close'], .close, button[aria-label='Close']");
-  closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
-  console.log("fvtt-character-md-export | кнопка добавлена для", actor.name);
+  return btn;
 }
 
-// — Способ 1: классический хук (AppV1, v12-v13)
-Hooks.on("renderActorSheet", (app, html) => {
+/**
+ * Инъекция кнопки для AppV2 (FoundryVTT v14).
+ * Принимает объект application (экземпляр ApplicationV2).
+ */
+function injectButtonV2(app) {
+  const actor = app.actor;
+  if (!actor || actor.type !== "character") return;
+
+  // app.element — корневой HTMLElement окна в AppV2
+  const windowEl = app.element;
+  if (!windowEl) return;
+  if (windowEl.querySelector(".mercer-export-btn")) return; // уже добавлена
+
+  // В AppV2 заголовок окна доступен через app.window.header
+  const header = app.window?.header;
+  if (!header) {
+    console.warn("fvtt-character-md-export | app.window.header не найден", app);
+    return;
+  }
+
+  const btn = createExportButton(actor);
+
+  // В AppV2 кнопка закрытия — app.window.close
+  const closeBtn = app.window?.close ?? header.querySelector("[data-action='close']");
+  closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
+  console.log("fvtt-character-md-export | [AppV2] кнопка добавлена для", actor.name);
+}
+
+/**
+ * Инъекция кнопки для AppV1 (FoundryVTT v12–v13).
+ * Принимает app и html так, как их передаёт хук renderActorSheet.
+ */
+function injectButtonV1(app, html) {
+  const actor = app.actor;
+  if (!actor || actor.type !== "character") return;
+
   const el = html instanceof jQuery ? html[0] : html;
-  const windowEl = el?.closest?.(".app") ?? el?.parentElement?.closest?.(".app");
-  if (windowEl) injectButton(app.actor, windowEl);
+  // В AppV1 корневой элемент окна имеет класс .app
+  const windowEl = el?.closest?.(".app") ?? el?.parentElement?.closest?.(".app") ?? el;
+  if (!windowEl) return;
+  if (windowEl.querySelector(".mercer-export-btn")) return;
+
+  const header = windowEl.querySelector(".window-header");
+  if (!header) {
+    console.warn("fvtt-character-md-export | [AppV1] .window-header не найден", windowEl);
+    return;
+  }
+
+  const btn = createExportButton(actor);
+  const closeBtn = header.querySelector("[data-action='close'], .close, button[aria-label='Close']");
+  closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
+  console.log("fvtt-character-md-export | [AppV1] кнопка добавлена для", actor.name);
+}
+
+// ── Хуки ─────────────────────────────────────────────────────────────────────
+
+// AppV1: хук для FoundryVTT v12–v13 (и систем, ещё использующих AppV1 в v14)
+Hooks.on("renderActorSheet", (app, html) => {
+  injectButtonV1(app, html);
 });
 
-// — Способ 2: AppV2 (v14) — поллинг foundry.applications.instances
+// AppV2: хук для FoundryVTT v14 — срабатывает при рендере любого ApplicationV2
+// В dnd5e v3+ лист персонажа наследует ActorSheetV2 → ApplicationV2
+Hooks.on("renderApplicationV2", (app, html, _data) => {
+  // Проверяем, что это лист актора (есть свойство actor)
+  if (!app.actor) return;
+  injectButtonV2(app);
+});
+
+// Дополнительный fallback через MutationObserver для нестандартных случаев
+// (например, если лист открыт до срабатывания хука или использует кастомный рендер)
 Hooks.on("ready", () => {
-  // В v14 лист персонажа — это ActorSheetV2, хук его рендера иной.
-  // Используем MutationObserver на document.body:
-  // каждый раз появляется новое .window-app — проверяем есть ли актор.
   const observer = new MutationObserver(mutations => {
     for (const mut of mutations) {
       for (const node of mut.addedNodes) {
         if (!(node instanceof HTMLElement)) continue;
-        // Ищем окно приложения
-        const windowEl = node.classList.contains("app") ? node
-          : node.querySelector?.(".app") ?? null;
+
+        // AppV2: корневой элемент имеет класс .application
+        // AppV1: корневой элемент имеет класс .app
+        const windowEl =
+          node.classList.contains("application") ? node :
+          node.classList.contains("app") ? node :
+          node.querySelector?.(".application") ??
+          node.querySelector?.(".app") ?? null;
+
         if (!windowEl) continue;
-        // Находим appId и актора
-        const appId = windowEl.dataset?.appid ?? windowEl.id?.replace("actor-sheet-","");
-        // Ищем в foundry.applications.instances
-        let actor = null;
-        for (const [, app] of foundry.applications.instances) {
-          if (app.actor && (app.id === appId || app.appId === Number(appId)
-              || windowEl.contains(app.element))) {
-            actor = app.actor; break;
+
+        // Пробуем найти соответствующий app-экземпляр через foundry.applications.instances
+        // В v14 это генератор (не Map), поэтому итерируем через for...of
+        let foundApp = null;
+        try {
+          for (const appInst of foundry.applications.instances()) {
+            if (appInst.actor && appInst.element && windowEl.contains(appInst.element)) {
+              foundApp = appInst; break;
+            }
+          }
+        } catch(_) {
+          // fallback: foundry.applications.instances может не существовать в старых версиях
+        }
+
+        if (foundApp) {
+          // Определяем версию API по наличию app.window (AppV2) или отсутствию (AppV1)
+          if (foundApp.window) {
+            injectButtonV2(foundApp);
+          } else {
+            // AppV1 fallback: ищем заголовок напрямую
+            if (!windowEl.querySelector(".mercer-export-btn") && foundApp.actor?.type === "character") {
+              const header = windowEl.querySelector(".window-header");
+              if (header) {
+                const btn = createExportButton(foundApp.actor);
+                const closeBtn = header.querySelector("[data-action='close'], .close");
+                closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
+              }
+            }
           }
         }
-        if (actor) injectButton(actor, windowEl);
       }
     }
   });
-  observer.observe(document.body, { childList: true, subtree: true });
-  console.log("fvtt-character-md-export | MutationObserver запущен");
+  observer.observe(document.body, { childList: true, subtree: false });
+  console.log("fvtt-character-md-export | MutationObserver (fallback) запущен");
 });
 
-console.log("fvtt-character-md-export | loaded ✓ (v14 AppV2 compat)");
+console.log("fvtt-character-md-export | loaded ✓ (v12–v14 AppV1+AppV2 compat)");
