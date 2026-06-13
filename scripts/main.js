@@ -7,13 +7,27 @@
 // ── Утилиты ──────────────────────────────────────────────────────────────────
 function mod(v){ const m=Math.floor((v-10)/2); return m>=0?`+${m}`:`${m}`; }
 function abilityStr(v){ return `${v} (${mod(v)})`; }
+
+/** Вырезает &reference[key]{текст} → текст, затем чистит HTML-теги */
 function stripHtml(html){
   if(!html) return "";
-  return html.replace(/<\/p>/gi,"\n").replace(/<br\s*\/?>/gi,"\n")
+  return html
+    // &reference[dimlight]{тусклом свете} → тусклом свете
+    .replace(/&reference\[[^\]]*\]\{([^}]+)\}/g, '$1')
+    .replace(/<\/p>/gi,"\n").replace(/<br\s*\/?>/gi,"\n")
     .replace(/<\/li>/gi,"\n").replace(/<li>/gi,"- ")
     .replace(/<[^>]+>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<")
     .replace(/&gt;/g,">").replace(/&nbsp;/g," ").replace(/\n{3,}/g,"\n\n").trim();
 }
+
+/** Берёт первое предложение из текста, но не более maxLen символов */
+function firstSentence(text, maxLen = 200){
+  if(!text) return "";
+  const m = text.match(/^.+?[.!?](?:\s|$)/s);
+  const sentence = m ? m[0].trim() : text;
+  return sentence.length > maxLen ? sentence.slice(0, maxLen).trimEnd() + "…" : sentence;
+}
+
 function profBonus(lvl){ return Math.ceil(lvl/4)+1; }
 function skillBonus(abilVal,profVal,pb){
   const base=Math.floor((abilVal-10)/2);
@@ -39,6 +53,43 @@ const SPELL_SCHOOL_RU={
   evo:"Воплощение",ill:"Иллюзия",nec:"Некромантия",trs:"Преобразование"
 };
 
+/** Перевод ключей языков dnd5e → русский.
+ *  Нестандартные/кастомные языки приходят уже строкой и сюда не попадают. */
+const LANGUAGE_RU={
+  common:       "Всеобщий",
+  dwarvish:     "Дварфийский",
+  elvish:       "Эльфийский",
+  giant:        "Великанский",
+  gnomish:      "Гномий",
+  goblin:       "Гоблинский",
+  halfling:     "Полуросликовый",
+  orc:          "Орочий",
+  abyssal:      "Бездны",
+  celestial:    "Небесный",
+  draconic:     "Драконий",
+  deepSpeech:   "Глубинная речь",
+  infernal:     "Дьявольский",
+  primordial:   "Первородный",
+  sylvan:       "Сильванский",
+  undercommon:  "Подземный",
+  cant:         "Воровской жаргон",
+  druidic:      "Друидический",
+  gith:         "Гитский",
+  gnoll:        "Гноллий",
+  thri:         "Тирийский",
+  aarakocra:    "Ааракокра",
+  aquan:        "Акван",
+  auran:        "Ауран",
+  ignan:        "Игнан",
+  terran:       "Терран",
+  troglodyte:   "Троглодитский",
+};
+
+/** Переводит один ключ языка; если нет в словаре — возвращает как есть */
+function langName(key){
+  return LANGUAGE_RU[key] ?? LANGUAGE_RU[key?.toLowerCase()] ?? key;
+}
+
 // ── Генерация Markdown ───────────────────────────────────────────────────────
 function generateMarkdown(actor){
   const s=actor.system, items=actor.items.contents;
@@ -54,9 +105,12 @@ function generateMarkdown(actor){
   const raceName=raceItem?raceItem.name:(s.details?.race||"—");
   const bgItem=items.find(i=>i.type==="background");
   const bgName=bgItem?bgItem.name:"—";
-  const langs=s.traits?.languages?.value||[];
+
+  // Языки: системные ключи переводим, кастомный текст оставляем как есть
+  const langs=(s.traits?.languages?.value||[]).map(langName);
   const langCustom=s.traits?.languages?.custom||"";
   const langStr=[...langs,...(langCustom?langCustom.split(";"):[])].map(l=>l.trim()).filter(Boolean).join(", ")||"—";
+
   const hp=s.attributes?.hp, ac=s.attributes?.ac?.value??"?";
   const mv=s.attributes?.movement, speedStr=mv?.walk?`${mv.walk} фут.`:"30 фут.";
   const prcVal=s.skills?.prc?.value??0;
@@ -98,7 +152,7 @@ function generateMarkdown(actor){
   L.push("## Общие сведения");
   L.push(`**Пол:** ${det.gender||"—"}  `,`**Раса:** ${raceName}  `,`**Происхождение:** ${bgName}  `,`**Уровень:** ${totalLevel}  `,`**Класс:** ${classStr||"—"}  `,`**Языки:** ${langStr}  `,"");
   L.push("## Боевые характеристики");
-  L.push(`**HP:** ${hp?.value??"?"}/${hp?.max??"?"} | **Темп HP:** ${hp?.temp??0}  `,`**КБ:** ${ac}  `,`**Скорость:** ${speedStr}  `,`**Пасс. внимательность:** ${passivePerc}  `,`**Бонус мастерства:** +${pb}  `,`**Инициатива:** ${initStr}  `,"");
+  L.push(`**HP:** ${hp?.value??"?"}/${hp?.max??"?"} | **Временные HP:** ${hp?.temp??0}  `,`**КБ:** ${ac}  `,`**Скорость:** ${speedStr}  `,`**Пасс. внимательность:** ${passivePerc}  `,`**Бонус мастерства:** +${pb}  `,`**Инициатива:** ${initStr}  `,"");
   L.push("## Характеристики",`| ${abilityHeader} |`,`| ${abilitySep} |`,`| ${abilityVals} |`,"");
   L.push("### Спасброски",`| ${abilityHeader} |`,`| ${abilitySep} |`,`| ${saveVals} |`,"*(✓ — владение)*","");
   L.push("### Навыки");
@@ -106,7 +160,16 @@ function generateMarkdown(actor){
   L.push("**Остальные:**"); otherSkills.forEach(l=>L.push(`- ${l}`)); L.push("");
   if(raceFeats.length){L.push("## Особенности расы");raceFeats.forEach(f=>{L.push(`### ${f.name}`);const d=stripHtml(f.system?.description?.value);if(d)L.push(d);L.push("");});}
   if(classFeats.length){L.push("## Особенности класса");classFeats.forEach(f=>{L.push(`### ${f.name}`);const d=stripHtml(f.system?.description?.value);if(d)L.push(d);if(f.system?.uses?.max)L.push(`*Исп.: ${f.system.uses.max-(f.system.uses.spent||0)}/${f.system.uses.max}*`);L.push("");});}
-  if(otherFeats.length){L.push("## Прочие черты");otherFeats.forEach(f=>{L.push(`### ${f.name}`);const d=stripHtml(f.system?.description?.value);if(d)L.push(d);L.push("");});}
+  // Прочие черты: только первое предложение описания (до 200 символов)
+  if(otherFeats.length){
+    L.push("## Прочие черты");
+    otherFeats.forEach(f=>{
+      L.push(`### ${f.name}`);
+      const d=firstSentence(stripHtml(f.system?.description?.value));
+      if(d)L.push(d);
+      L.push("");
+    });
+  }
   L.push("## Инвентарь","");
   if(weapons.length){
     L.push("### Оружие","| Название | Снаряжено | Урон | Тип | Свойства |","|---|---|---|---|---|");
@@ -175,12 +238,10 @@ function injectButtonV2(app) {
   const actor = app.actor;
   if (!actor || actor.type !== "character") return;
 
-  // app.element — корневой HTMLElement окна в AppV2
   const windowEl = app.element;
   if (!windowEl) return;
-  if (windowEl.querySelector(".mercer-export-btn")) return; // уже добавлена
+  if (windowEl.querySelector(".mercer-export-btn")) return;
 
-  // В AppV2 заголовок окна доступен через app.window.header
   const header = app.window?.header;
   if (!header) {
     console.warn("fvtt-character-md-export | app.window.header не найден", app);
@@ -188,8 +249,6 @@ function injectButtonV2(app) {
   }
 
   const btn = createExportButton(actor);
-
-  // В AppV2 кнопка закрытия — app.window.close
   const closeBtn = app.window?.close ?? header.querySelector("[data-action='close']");
   closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
   console.log("fvtt-character-md-export | [AppV2] кнопка добавлена для", actor.name);
@@ -204,7 +263,6 @@ function injectButtonV1(app, html) {
   if (!actor || actor.type !== "character") return;
 
   const el = html instanceof jQuery ? html[0] : html;
-  // В AppV1 корневой элемент окна имеет класс .app
   const windowEl = el?.closest?.(".app") ?? el?.parentElement?.closest?.(".app") ?? el;
   if (!windowEl) return;
   if (windowEl.querySelector(".mercer-export-btn")) return;
@@ -223,39 +281,26 @@ function injectButtonV1(app, html) {
 
 // ── Хуки ─────────────────────────────────────────────────────────────────────
 
-// AppV1: хук для FoundryVTT v12–v13 (и систем, ещё использующих AppV1 в v14)
 Hooks.on("renderActorSheet", (app, html) => {
   injectButtonV1(app, html);
 });
 
-// AppV2: хук для FoundryVTT v14 — срабатывает при рендере любого ApplicationV2
-// В dnd5e v3+ лист персонажа наследует ActorSheetV2 → ApplicationV2
 Hooks.on("renderApplicationV2", (app, html, _data) => {
-  // Проверяем, что это лист актора (есть свойство actor)
   if (!app.actor) return;
   injectButtonV2(app);
 });
 
-// Дополнительный fallback через MutationObserver для нестандартных случаев
-// (например, если лист открыт до срабатывания хука или использует кастомный рендер)
 Hooks.on("ready", () => {
   const observer = new MutationObserver(mutations => {
     for (const mut of mutations) {
       for (const node of mut.addedNodes) {
         if (!(node instanceof HTMLElement)) continue;
-
-        // AppV2: корневой элемент имеет класс .application
-        // AppV1: корневой элемент имеет класс .app
         const windowEl =
           node.classList.contains("application") ? node :
           node.classList.contains("app") ? node :
           node.querySelector?.(".application") ??
           node.querySelector?.(".app") ?? null;
-
         if (!windowEl) continue;
-
-        // Пробуем найти соответствующий app-экземпляр через foundry.applications.instances
-        // В v14 это генератор (не Map), поэтому итерируем через for...of
         let foundApp = null;
         try {
           for (const appInst of foundry.applications.instances()) {
@@ -263,23 +308,16 @@ Hooks.on("ready", () => {
               foundApp = appInst; break;
             }
           }
-        } catch(_) {
-          // fallback: foundry.applications.instances может не существовать в старых версиях
-        }
-
+        } catch(_) {}
         if (foundApp) {
-          // Определяем версию API по наличию app.window (AppV2) или отсутствию (AppV1)
           if (foundApp.window) {
             injectButtonV2(foundApp);
-          } else {
-            // AppV1 fallback: ищем заголовок напрямую
-            if (!windowEl.querySelector(".mercer-export-btn") && foundApp.actor?.type === "character") {
-              const header = windowEl.querySelector(".window-header");
-              if (header) {
-                const btn = createExportButton(foundApp.actor);
-                const closeBtn = header.querySelector("[data-action='close'], .close");
-                closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
-              }
+          } else if (!windowEl.querySelector(".mercer-export-btn") && foundApp.actor?.type === "character") {
+            const header = windowEl.querySelector(".window-header");
+            if (header) {
+              const btn = createExportButton(foundApp.actor);
+              const closeBtn = header.querySelector("[data-action='close'], .close");
+              closeBtn ? header.insertBefore(btn, closeBtn) : header.appendChild(btn);
             }
           }
         }
